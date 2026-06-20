@@ -13,9 +13,18 @@ const state = {
 async function api(method, path, body) {
   const opts = { method, headers: { 'Content-Type': 'application/json' } };
   if (body) opts.body = JSON.stringify(body);
-  const res = await fetch(path, opts);
-  if (!res.ok) throw new Error(await res.text());
-  return res.json();
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 20000); // 20s timeout
+  try {
+    const res = await fetch(path, { ...opts, signal: controller.signal });
+    clearTimeout(timer);
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+  } catch (e) {
+    clearTimeout(timer);
+    if (e.name === 'AbortError') throw new Error('Server took too long — try again');
+    throw e;
+  }
 }
 
 // ─── Toast ────────────────────────────────────────────────────────────────────

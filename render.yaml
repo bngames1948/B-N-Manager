@@ -7,7 +7,5 @@ services:
     envVars:
       - key: NODE_ENV
         value: production
-    disk:
-      name: data
-      mountPath: /data
-      sizeGB: 1
+      - key: MONGODB_URI
+        sync: false

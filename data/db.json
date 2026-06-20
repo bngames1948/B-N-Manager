@@ -1,0 +1,331 @@
+{
+  "customers": [
+    {
+      "id": "J",
+      "name": "J"
+    },
+    {
+      "id": "Abe",
+      "name": "Abe"
+    },
+    {
+      "id": "Pedro",
+      "name": "Pedro"
+    },
+    {
+      "id": "MC",
+      "name": "MC"
+    }
+  ],
+  "locations": [
+    {
+      "id": "j-hunting",
+      "customerId": "J",
+      "name": "J - Hunting",
+      "splitPercent": 50,
+      "day": "fri-a",
+      "hasAtm": true,
+      "sortOrder": 1
+    },
+    {
+      "id": "j-frank",
+      "customerId": "J",
+      "name": "J - Frank",
+      "splitPercent": 50,
+      "day": "fri-a",
+      "hasAtm": true,
+      "sortOrder": 2
+    },
+    {
+      "id": "j-n6",
+      "customerId": "J",
+      "name": "J - N6",
+      "splitPercent": 50,
+      "day": "fri-a",
+      "hasAtm": true,
+      "sortOrder": 3
+    },
+    {
+      "id": "pedro",
+      "customerId": "Pedro",
+      "name": "Pedro",
+      "splitPercent": 40,
+      "day": "fri-a",
+      "hasAtm": false,
+      "sortOrder": 4
+    },
+    {
+      "id": "abe-60",
+      "customerId": "Abe",
+      "name": "Abe - 60",
+      "splitPercent": 50,
+      "day": "fri-a",
+      "hasAtm": true,
+      "sortOrder": 5
+    },
+    {
+      "id": "abe-2900",
+      "customerId": "Abe",
+      "name": "Abe - 2900",
+      "splitPercent": 50,
+      "day": "fri-a",
+      "hasAtm": true,
+      "sortOrder": 6
+    },
+    {
+      "id": "abe-5921",
+      "customerId": "Abe",
+      "name": "Abe - 5921",
+      "splitPercent": 50,
+      "day": "fri-a",
+      "hasAtm": true,
+      "sortOrder": 7
+    },
+    {
+      "id": "abe-1575",
+      "customerId": "Abe",
+      "name": "Abe - 1575",
+      "splitPercent": 50,
+      "day": "fri-a",
+      "hasAtm": true,
+      "sortOrder": 8
+    },
+    {
+      "id": "mc-club",
+      "customerId": "MC",
+      "name": "MC - Club",
+      "splitPercent": 50,
+      "day": "fri-a",
+      "hasAtm": false,
+      "sortOrder": 9
+    }
+  ],
+  "machines": [
+    {
+      "id": "M-1",
+      "locationId": "j-hunting",
+      "gameType": "Aurora 3",
+      "sortOrder": 1,
+      "permanentNote": ""
+    },
+    {
+      "id": "M-2",
+      "locationId": "j-hunting",
+      "gameType": "Fusion 4",
+      "sortOrder": 2,
+      "permanentNote": ""
+    },
+    {
+      "id": "M-3",
+      "locationId": "j-hunting",
+      "gameType": "Premiera",
+      "sortOrder": 3,
+      "permanentNote": "Change To Aurora ASAP"
+    },
+    {
+      "id": "M-4",
+      "locationId": "j-frank",
+      "gameType": "Fusion Link",
+      "sortOrder": 1,
+      "permanentNote": ""
+    },
+    {
+      "id": "M-5",
+      "locationId": "j-frank",
+      "gameType": "High Roller",
+      "sortOrder": 2,
+      "permanentNote": ""
+    },
+    {
+      "id": "M-6",
+      "locationId": "j-frank",
+      "gameType": "Premiera Delux 2",
+      "sortOrder": 3,
+      "permanentNote": ""
+    },
+    {
+      "id": "M-7",
+      "locationId": "j-n6",
+      "gameType": "Aurora 1",
+      "sortOrder": 1,
+      "permanentNote": "Change To Aurora 3/5"
+    },
+    {
+      "id": "M-8",
+      "locationId": "j-n6",
+      "gameType": "Golden Master",
+      "sortOrder": 2,
+      "permanentNote": "Change To New Fusion?"
+    },
+    {
+      "id": "M-9",
+      "locationId": "pedro",
+      "gameType": "Aurora 1 (Plus)",
+      "sortOrder": 1,
+      "permanentNote": ""
+    },
+    {
+      "id": "M-10",
+      "locationId": "pedro",
+      "gameType": "Aurora Link (Plus)",
+      "sortOrder": 2,
+      "permanentNote": ""
+    },
+    {
+      "id": "M-11",
+      "locationId": "abe-60",
+      "gameType": "Aurora 1 (Plus)",
+      "sortOrder": 1,
+      "permanentNote": ""
+    },
+    {
+      "id": "M-12",
+      "locationId": "abe-60",
+      "gameType": "Fusion 4",
+      "sortOrder": 2,
+      "permanentNote": ""
+    },
+    {
+      "id": "M-13",
+      "locationId": "abe-2900",
+      "gameType": "Aurora Super Link",
+      "sortOrder": 1,
+      "permanentNote": ""
+    },
+    {
+      "id": "M-14",
+      "locationId": "abe-2900",
+      "gameType": "Fusion Link 2",
+      "sortOrder": 2,
+      "permanentNote": ""
+    },
+    {
+      "id": "M-15",
+      "locationId": "abe-5921",
+      "gameType": "Golden Master",
+      "sortOrder": 1,
+      "permanentNote": ""
+    },
+    {
+      "id": "M-16",
+      "locationId": "abe-5921",
+      "gameType": "Aurora 5",
+      "sortOrder": 2,
+      "permanentNote": ""
+    },
+    {
+      "id": "M-17",
+      "locationId": "abe-1575",
+      "gameType": "Fusion 4",
+      "sortOrder": 1,
+      "permanentNote": ""
+    },
+    {
+      "id": "M-18",
+      "locationId": "abe-1575",
+      "gameType": "Golden Master",
+      "sortOrder": 2,
+      "permanentNote": ""
+    },
+    {
+      "id": "M-21",
+      "locationId": "mc-club",
+      "gameType": "Aurora Link",
+      "sortOrder": 1,
+      "permanentNote": ""
+    },
+    {
+      "id": "M-22",
+      "locationId": "mc-club",
+      "gameType": "Golden Master",
+      "sortOrder": 2,
+      "permanentNote": ""
+    }
+  ],
+  "baselineReadings": {
+    "M-1": {
+      "in": 25106,
+      "out": 12838
+    },
+    "M-2": {
+      "in": 11315,
+      "out": 7492
+    },
+    "M-3": {
+      "in": 6464,
+      "out": 3883
+    },
+    "M-4": {
+      "in": 100448,
+      "out": 82968
+    },
+    "M-5": {
+      "in": 39305,
+      "out": 22157
+    },
+    "M-6": {
+      "in": 12724,
+      "out": 6405
+    },
+    "M-7": {
+      "in": 14575,
+      "out": 9846
+    },
+    "M-8": {
+      "in": 10677,
+      "out": 6989
+    },
+    "M-9": {
+      "in": 14916,
+      "out": 7605
+    },
+    "M-10": {
+      "in": 9622,
+      "out": 4994
+    },
+    "M-11": {
+      "in": 3016,
+      "out": 1330
+    },
+    "M-12": {
+      "in": 13423,
+      "out": 11827
+    },
+    "M-13": {
+      "in": 4172,
+      "out": 1980
+    },
+    "M-14": {
+      "in": 82238,
+      "out": 56753
+    },
+    "M-15": {
+      "in": 20396,
+      "out": 13671
+    },
+    "M-16": {
+      "in": 307709,
+      "out": 217377
+    },
+    "M-17": {
+      "in": 959,
+      "out": 334
+    },
+    "M-18": {
+      "in": 6555,
+      "out": 4731
+    },
+    "M-21": {
+      "in": 48192,
+      "out": 40399
+    },
+    "M-22": {
+      "in": 65,
+      "out": 65
+    }
+  },
+  "periods": [],
+  "readings": [],
+  "atmRefills": [],
+  "tasks": []
+}

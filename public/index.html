@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="B&N Manager">
+  <meta name="theme-color" content="#161b22">
+  <title>B&N Manager</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="app">
+  <header id="header">
+    <button id="back-btn" class="hidden" onclick="App.goBack()">&#8592;</button>
+    <h1 id="page-title">B&amp;N Manager</h1>
+    <div id="header-action"></div>
+  </header>
+
+  <main id="main-content"></main>
+
+  <nav id="bottom-nav">
+    <button class="nav-btn active" data-tab="dashboard" onclick="App.showTab('dashboard')">
+      <span class="icon">🏠</span><span class="label">Home</span>
+    </button>
+    <button class="nav-btn" data-tab="locations" onclick="App.showTab('locations')">
+      <span class="icon">📍</span><span class="label">Locations</span>
+    </button>
+    <button class="nav-btn" data-tab="tasks" onclick="App.showTab('tasks')">
+      <span class="icon">✅</span><span class="label">Tasks</span>
+    </button>
+    <button class="nav-btn" data-tab="summary" onclick="App.showTab('summary')">
+      <span class="icon">📊</span><span class="label">Summary</span>
+    </button>
+  </nav>
+</div>
+
+<div id="toast"></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

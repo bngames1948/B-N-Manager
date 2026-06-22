@@ -31,8 +31,18 @@ async function initDb() {
     await client.connect();
     _mongoCol = client.db('bnmanager').collection('state');
     const doc = await _mongoCol.findOne({ _id: 'main' });
-    _cache = doc ? doc.data : JSON.parse(fs.readFileSync(SEED_PATH, 'utf8'));
-    if (!doc) await _mongoCol.replaceOne({ _id: 'main' }, { _id: 'main', data: _cache }, { upsert: true });
+    const seed = JSON.parse(fs.readFileSync(SEED_PATH, 'utf8'));
+    if (doc) {
+      // Always sync config from seed so changes to init.json take effect on redeploy
+      doc.data.customers = seed.customers;
+      doc.data.locations = seed.locations;
+      doc.data.machines = seed.machines;
+      doc.data.baselineReadings = seed.baselineReadings;
+      _cache = doc.data;
+    } else {
+      _cache = seed;
+    }
+    await _mongoCol.replaceOne({ _id: 'main' }, { _id: 'main', data: _cache }, { upsert: true });
     console.log('Connected to MongoDB');
   } else {
     _cache = JSON.parse(fs.readFileSync(LOCAL_PATH, 'utf8'));

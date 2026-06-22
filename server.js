@@ -9,8 +9,12 @@ const app = express();
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
 
-app.use(express.json());
+app.use(express.json({ limit: '12mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
+
+const IMAGES_DIR = path.join(__dirname, 'data', 'images');
+if (!fs.existsSync(IMAGES_DIR)) fs.mkdirSync(IMAGES_DIR, { recursive: true });
+app.use('/uploads', express.static(IMAGES_DIR));
 
 // ─── DB: in-memory cache + MongoDB or file fallback ──────────────────────────
 
@@ -236,6 +240,152 @@ app.get('/api/summary/:periodId', (req, res) => {
   });
 
   res.json(summary);
+});
+
+// ─── API: Photos ──────────────────────────────────────────────────────────────
+
+app.get('/api/periods/:id/photos', (req, res) => {
+  const db = readDb();
+  if (!db.photos) db.photos = [];
+  res.json(db.photos.filter(p => p.periodId === req.params.id));
+});
+
+app.post('/api/photos', (req, res) => {
+  const db = readDb();
+  if (!db.photos) db.photos = [];
+  const { periodId, machineId, imageData } = req.body;
+  if (!imageData) return res.status(400).json({ error: 'No image data' });
+
+  const base64   = imageData.replace(/^data:image\/\w+;base64,/, '');
+  const extMatch = imageData.match(/^data:image\/(\w+);/);
+  const ext      = extMatch ? extMatch[1].replace('jpeg', 'jpg') : 'jpg';
+  const filename = `${periodId.slice(0, 8)}-${machineId}-${Date.now()}.${ext}`;
+  const filepath = path.join(IMAGES_DIR, filename);
+
+  fs.writeFileSync(filepath, Buffer.from(base64, 'base64'));
+
+  // Remove previous photo for this machine+period (file + db record)
+  const old = db.photos.find(p => p.periodId === periodId && p.machineId === machineId);
+  if (old) {
+    try { fs.unlinkSync(path.join(IMAGES_DIR, path.basename(old.imageUrl))); } catch {}
+  }
+  db.photos = db.photos.filter(p => !(p.periodId === periodId && p.machineId === machineId));
+
+  const photo = { id: uuidv4(), periodId, machineId, imageUrl: `/uploads/${filename}`, savedAt: new Date().toISOString() };
+  db.photos.push(photo);
+  writeDb(db);
+  broadcast('photo_saved', photo);
+  res.json(photo);
+});
+
+app.delete('/api/photos/:id', (req, res) => {
+  const db = readDb();
+  if (!db.photos) db.photos = [];
+  const photo = db.photos.find(p => p.id === req.params.id);
+  if (!photo) return res.status(404).json({ error: 'Not found' });
+  try { fs.unlinkSync(path.join(IMAGES_DIR, path.basename(photo.imageUrl))); } catch {}
+  db.photos = db.photos.filter(p => p.id !== req.params.id);
+  writeDb(db);
+  broadcast('photo_deleted', { id: req.params.id });
+  res.json({ ok: true });
+});
+
+// ─── API: Previous readings (for OLD IN/OUT display) ─────────────────────────
+
+app.get('/api/prev-readings', (req, res) => {
+  const db = readDb();
+  const activePeriodId = db.periods.find(p => p.status === 'active')?.id;
+  const result = {};
+  db.machines.forEach(m => {
+    const prev = db.readings
+      .filter(r => r.machineId === m.id && (!activePeriodId || r.periodId !== activePeriodId))
+      .sort((a, b) => new Date(b.savedAt) - new Date(a.savedAt))[0];
+    if (prev) result[m.id] = { in: prev.lifetimeIn, out: prev.lifetimeOut };
+  });
+  res.json(result);
+});
+
+// ─── API: Analytics ───────────────────────────────────────────────────────────
+
+app.get('/api/analytics/:periodId', (req, res) => {
+  const db = readDb();
+  const { periodId } = req.params;
+  const allReadings    = db.readings;
+  const periodReadings = allReadings.filter(r => r.periodId === periodId);
+
+  // Per-machine stats
+  const machineStats = db.machines.map(machine => {
+    const allMachineReadings  = allReadings.filter(r => r.machineId === machine.id);
+    const thisPeriodReading   = periodReadings.find(r => r.machineId === machine.id) || null;
+    const location            = db.locations.find(l => l.id === machine.locationId);
+    const totalPeriods        = allMachineReadings.length;
+    const avgProfit           = totalPeriods > 0
+      ? allMachineReadings.reduce((s, r) => s + r.weekSum, 0) / totalPeriods : 0;
+    return {
+      machine:     { id: machine.id, gameType: machine.gameType, locationId: machine.locationId },
+      locationName: location?.name || machine.locationId,
+      thisPeriodReading,
+      totalPeriods,
+      avgProfit:   Math.round(avgProfit * 100) / 100
+    };
+  });
+
+  // Game-type stats across all periods
+  const gameTypeMap = {};
+  allReadings.forEach(r => {
+    const machine = db.machines.find(m => m.id === r.machineId);
+    if (!machine) return;
+    const gt = machine.gameType;
+    if (!gameTypeMap[gt]) gameTypeMap[gt] = { totalProfit: 0, totalIn: 0, count: 0 };
+    gameTypeMap[gt].totalProfit += r.weekSum;
+    gameTypeMap[gt].totalIn     += r.weekIn;
+    gameTypeMap[gt].count++;
+  });
+  const gameTypeStats = Object.entries(gameTypeMap)
+    .map(([type, d]) => ({
+      gameType:    type,
+      avgProfit:   Math.round(d.totalProfit / d.count),
+      avgIn:       Math.round(d.totalIn     / d.count),
+      totalPeriods: d.count
+    }))
+    .sort((a, b) => b.avgProfit - a.avgProfit);
+
+  // Cash flow for this period
+  const atmRefills      = db.atmRefills.filter(r => r.periodId === periodId);
+  const totalIn         = periodReadings.reduce((s, r) => s + r.weekIn,  0);
+  const totalOut        = periodReadings.reduce((s, r) => s + r.weekOut, 0);
+  const totalProfit     = periodReadings.reduce((s, r) => s + r.weekSum, 0);
+  const totalAtmRefills = atmRefills.reduce((s, r) => s + r.amount,      0);
+  const totalAtmShort   = atmRefills.reduce((s, r) => s + r.shortAmount, 0);
+
+  // Suggestions — machines below 50 % of period average
+  const machinesWithData = machineStats.filter(m => m.thisPeriodReading);
+  const avgThisPeriod    = machinesWithData.length > 0
+    ? machinesWithData.reduce((s, m) => s + m.thisPeriodReading.weekSum, 0) / machinesWithData.length : 0;
+  const bestGameType     = gameTypeStats[0];
+
+  const suggestions = machineStats
+    .filter(m => m.thisPeriodReading && avgThisPeriod > 0 && m.thisPeriodReading.weekSum < avgThisPeriod * 0.5)
+    .map(m => ({
+      machineId:     m.machine.id,
+      locationName:  m.locationName,
+      currentGame:   m.machine.gameType,
+      currentProfit: m.thisPeriodReading.weekSum,
+      suggestedGame: (bestGameType && bestGameType.gameType !== m.machine.gameType) ? bestGameType.gameType : null,
+      bestAvgProfit: bestGameType ? bestGameType.avgProfit : 0
+    }));
+
+  res.json({
+    machineStats,
+    gameTypeStats,
+    cashFlow: { totalIn, totalOut, totalProfit, totalAtmRefills, totalAtmShort, cashOnHand: totalIn - totalAtmRefills },
+    atmDetails: atmRefills.map(r => {
+      const loc = db.locations.find(l => l.id === r.locationId);
+      return { locationName: loc?.name || r.locationId, amount: r.amount, shortAmount: r.shortAmount, notes: r.notes };
+    }),
+    suggestions,
+    avgThisPeriod: Math.round(avgThisPeriod * 100) / 100
+  });
 });
 
 // ─── Start ────────────────────────────────────────────────────────────────────

@@ -324,8 +324,16 @@
       "out": 65
     }
   },
-  "periods": [],
+  "periods": [
+    {
+      "id": "88b0720d-67ed-496f-8742-e15f5503e8c8",
+      "label": "June 21, 2026",
+      "createdAt": "2026-06-22T03:01:15.912Z",
+      "status": "active"
+    }
+  ],
   "readings": [],
   "atmRefills": [],
-  "tasks": []
+  "tasks": [],
+  "photos": []
 }

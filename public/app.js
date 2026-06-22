@@ -1,9 +1,10 @@
 // ─── State ────────────────────────────────────────────────────────────────────
 const state = {
   customers: [], locations: [], machines: [], baselineReadings: {},
-  periods: [], readings: [], atmRefills: [], tasks: [],
+  periods: [], readings: [], atmRefills: [], tasks: [], photos: [],
+  prevReadings: {},
   currentTab: 'dashboard',
-  navStack: [],            // [{ tab, render }] for back-button support
+  navStack: [],
   activePeriodId: null,
   ws: null,
   wsConnected: false
@@ -83,6 +84,13 @@ function connectWS() {
       case 'task_deleted':
         state.tasks = state.tasks.filter(t => t.id !== payload.id);
         break;
+      case 'photo_saved':
+        state.photos = state.photos.filter(p => !(p.machineId === payload.machineId && p.periodId === payload.periodId));
+        state.photos.push(payload);
+        break;
+      case 'photo_deleted':
+        state.photos = state.photos.filter(p => p.id !== payload.id);
+        break;
       case 'period_created':
         if (!state.periods.find(p => p.id === payload.id)) state.periods.unshift(payload);
         state.activePeriodId = payload.id;
@@ -107,23 +115,27 @@ function connectWS() {
 
 // ─── Data loading ─────────────────────────────────────────────────────────────
 async function loadAll() {
-  const [config, periods] = await Promise.all([
+  const [config, periods, prevReadings] = await Promise.all([
     api('GET', '/api/config'),
-    api('GET', '/api/periods')
+    api('GET', '/api/periods'),
+    api('GET', '/api/prev-readings')
   ]);
   Object.assign(state, config);
-  state.periods = periods;
+  state.periods      = periods;
+  state.prevReadings = prevReadings;
   state.activePeriodId = periods.find(p => p.status === 'active')?.id || null;
 
   if (state.activePeriodId) {
-    const [readings, atmRefills, tasks] = await Promise.all([
+    const [readings, atmRefills, tasks, photos] = await Promise.all([
       api('GET', `/api/periods/${state.activePeriodId}/readings`),
       api('GET', `/api/periods/${state.activePeriodId}/atm-refills`),
-      api('GET', `/api/tasks?periodId=${state.activePeriodId}`)
+      api('GET', `/api/tasks?periodId=${state.activePeriodId}`),
+      api('GET', `/api/periods/${state.activePeriodId}/photos`)
     ]);
-    state.readings  = readings;
+    state.readings   = readings;
     state.atmRefills = atmRefills;
-    state.tasks     = tasks;
+    state.tasks      = tasks;
+    state.photos     = photos;
   } else {
     const tasks = await api('GET', '/api/tasks');
     state.tasks = tasks;
@@ -168,10 +180,12 @@ function readingFor(machineId, periodId) {
 }
 
 function oldValueFor(machineId) {
-  const prev = state.readings
-    .filter(r => r.machineId === machineId && r.periodId !== state.activePeriodId)
-    .sort((a, b) => new Date(b.savedAt) - new Date(a.savedAt))[0];
-  if (prev) return { in: prev.lifetimeIn, out: prev.lifetimeOut };
+  // If already saved this period, the reading carries the correct oldIn/oldOut
+  const current = readingFor(machineId);
+  if (current) return { in: current.oldIn, out: current.oldOut };
+  // Use previous period's last saved reading (fetched at load time)
+  if (state.prevReadings?.[machineId]) return state.prevReadings[machineId];
+  // Fallback to baseline
   return state.baselineReadings[machineId] || { in: 0, out: 0 };
 }
 
@@ -181,6 +195,11 @@ function totalDone() {
 
 function openTasks() {
   return state.tasks.filter(t => !t.completed);
+}
+
+function photoFor(machineId, periodId) {
+  const pid = periodId || state.activePeriodId;
+  return state.photos.find(p => p.machineId === machineId && p.periodId === pid) || null;
 }
 
 // ─── App Controller ───────────────────────────────────────────────────────────
@@ -201,7 +220,8 @@ const App = {
       dashboard: renderDashboard,
       locations: renderLocations,
       tasks:     renderTasks,
-      summary:   renderSummary
+      summary:   renderSummary,
+      analytics: renderAnalytics
     };
     const fn = renders[tab];
     if (fn) { this._currentRender = fn; fn(); }
@@ -357,6 +377,7 @@ async function confirmNewPeriod(label, btn) {
     state.activePeriodId = period.id;
     state.readings   = [];
     state.atmRefills = [];
+    state.prevReadings = await api('GET', '/api/prev-readings');
     document.querySelector('div[style*="position:fixed"]')?.remove();
     toast('New period started — numbers cleared!');
     renderDashboard();
@@ -424,6 +445,19 @@ function renderLocation(locationId) {
   machines.forEach(m => {
     const reading = readingFor(m.id);
     const old     = oldValueFor(m.id);
+    const photo   = photoFor(m.id);
+
+    let photoHtml;
+    if (photo) {
+      photoHtml = '<div class="photo-preview-wrap">'
+        + '<img src="' + photo.imageUrl + '" class="meter-thumb" onclick="viewPhoto(\'' + photo.imageUrl + '\')">'
+        + '<div style="display:flex;gap:6px;margin-top:6px">'
+        + '<button class="btn btn-secondary btn-sm" onclick="document.getElementById(\'photo-file-' + m.id + '\').click()">📷 Replace</button>'
+        + '<button class="btn btn-sm" style="background:var(--red-dim);color:var(--red);border:1px solid var(--red)" onclick="deletePhoto(\'' + photo.id + '\',\'' + locationId + '\')">✕ Remove</button>'
+        + '</div></div>';
+    } else {
+      photoHtml = '<button class="btn btn-secondary btn-sm" onclick="document.getElementById(\'photo-file-' + m.id + '\').click()">📷 Upload</button>';
+    }
 
     html += `<div class="machine-card" id="mc-${m.id}">
       <div class="machine-header">
@@ -455,6 +489,14 @@ function renderLocation(locationId) {
           <span class="input-label">Notes</span>
           <input type="text" id="note-${m.id}" placeholder="Optional note" value="${reading ? reading.notes : ''}">
         </div>
+        <div class="photo-upload-row">
+          <span class="input-label" style="padding-top:2px">Photo</span>
+          <div style="flex:1">
+            ${photoHtml}
+            <input type="file" id="photo-file-${m.id}" accept="image/*" style="display:none"
+              onchange="handlePhotoUpload('${m.id}','${locationId}',this)">
+          </div>
+        </div>
       </div>
       <div class="calc-row" id="calc-${m.id}">
         <div class="calc-item">
@@ -480,7 +522,7 @@ function renderLocation(locationId) {
 
   // ATM section
   if (loc.hasAtm) {
-    const amounts = [500, 1000, 1500, 2000, 2500, 3000];
+    const amounts = [500, 1000, 1500, 2000, 2500, 3000, 4000, 5000];
     const selected = atm ? atm.amount : null;
     html += `
     <div class="section-title">ATM / Kiosk Refill</div>
@@ -555,7 +597,7 @@ function renderLocation(locationId) {
   document.getElementById('main-content').innerHTML = html;
 
   // Set ATM custom amount if needed
-  if (loc.hasAtm && atm && ![500,1000,1500,2000,2500,3000].includes(atm.amount)) {
+  if (loc.hasAtm && atm && ![500,1000,1500,2000,2500,3000,4000,5000].includes(atm.amount)) {
     window._atmCustomAmounts = window._atmCustomAmounts || {};
     window._atmCustomAmounts[loc.id] = atm.amount;
   }
@@ -1163,6 +1205,277 @@ async function generatePDF(periodId) {
   } finally {
     if (btn) { btn.textContent = '📄 Save Full Report as PDF'; btn.disabled = false; }
   }
+}
+
+// ─── Photo Upload ─────────────────────────────────────────────────────────────
+
+function resizeImage(file, maxPx, quality) {
+  return new Promise(resolve => {
+    const reader = new FileReader();
+    reader.onload = e => {
+      const img = new Image();
+      img.onload = () => {
+        const scale  = Math.min(1, maxPx / Math.max(img.width, img.height));
+        const canvas = document.createElement('canvas');
+        canvas.width  = Math.round(img.width  * scale);
+        canvas.height = Math.round(img.height * scale);
+        canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+        resolve(canvas.toDataURL('image/jpeg', quality));
+      };
+      img.src = e.target.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+async function handlePhotoUpload(machineId, locationId, input) {
+  const file = input.files?.[0];
+  if (!file) return;
+  const period = activePeriod();
+  if (!period) { toast('No active period'); return; }
+
+  toast('Uploading…');
+  try {
+    const imageData = await resizeImage(file, 1400, 0.82);
+    const photo = await api('POST', '/api/photos', { periodId: period.id, machineId, imageData });
+    state.photos = state.photos.filter(p => !(p.machineId === machineId && p.periodId === period.id));
+    state.photos.push(photo);
+    toast('Photo saved!');
+    renderLocation(locationId);
+  } catch(e) { toast('Upload failed: ' + e.message); }
+  input.value = '';
+}
+
+async function deletePhoto(photoId, locationId) {
+  if (!confirm('Remove this photo?')) return;
+  try {
+    await api('DELETE', `/api/photos/${photoId}`);
+    state.photos = state.photos.filter(p => p.id !== photoId);
+    toast('Photo removed');
+    renderLocation(locationId);
+  } catch(e) { toast('Error: ' + e.message); }
+}
+
+function viewPhoto(url) {
+  const overlay = document.createElement('div');
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.96);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px;';
+  overlay.innerHTML = `
+    <div style="position:relative;max-width:100%;max-height:100%">
+      <img src="${url}" style="max-width:100%;max-height:88vh;border-radius:8px;display:block">
+      <button onclick="this.closest('[style]').remove()"
+        style="position:absolute;top:-14px;right:-14px;background:#444;border:none;color:#fff;
+               border-radius:50%;width:34px;height:34px;font-size:20px;cursor:pointer;
+               display:flex;align-items:center;justify-content:center;line-height:1">×</button>
+    </div>`;
+  document.body.appendChild(overlay);
+  overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+}
+
+// ─── Analytics ────────────────────────────────────────────────────────────────
+let _analyticsPeriodId = null;
+
+async function renderAnalytics() {
+  document.getElementById('page-title').textContent = 'Analytics';
+  document.getElementById('header-action').innerHTML = '';
+
+  const periods  = state.periods;
+  const periodId = _analyticsPeriodId || state.activePeriodId || periods[0]?.id;
+  _analyticsPeriodId = periodId;
+
+  let html = `<div class="page">`;
+
+  if (!periods.length) {
+    html += `<div class="empty-state"><div class="empty-icon">📈</div><h3>No Data Yet</h3><p>Start a period and enter readings first.</p></div>`;
+    document.getElementById('main-content').innerHTML = html + '</div>';
+    return;
+  }
+
+  html += `<select class="period-select" onchange="changeAnalyticsPeriod(this.value)">`;
+  periods.forEach(p => {
+    html += `<option value="${p.id}"${p.id === periodId ? ' selected' : ''}>${p.label}${p.status === 'active' ? ' (Active)' : ''}</option>`;
+  });
+  html += `</select>`;
+  html += `<div id="analytics-body"><div class="empty-state" style="padding:24px"><div class="empty-icon" style="font-size:32px">⏳</div><p>Loading…</p></div></div></div>`;
+  document.getElementById('main-content').innerHTML = html;
+
+  try {
+    const data = await api('GET', `/api/analytics/${periodId}`);
+    renderAnalyticsBody(data);
+  } catch(e) {
+    document.getElementById('analytics-body').innerHTML =
+      `<p style="color:var(--red);padding:16px">Error: ${e.message}</p>`;
+  }
+}
+
+function changeAnalyticsPeriod(id) {
+  _analyticsPeriodId = id;
+  renderAnalytics();
+}
+
+function renderAnalyticsBody(data) {
+  const { machineStats, gameTypeStats, cashFlow, atmDetails, suggestions, avgThisPeriod } = data;
+  let html = '';
+
+  // ── Machine Performance Ranking ──────────────────────────────────
+  const withData = machineStats
+    .filter(m => m.thisPeriodReading)
+    .sort((a, b) => b.thisPeriodReading.weekSum - a.thisPeriodReading.weekSum);
+  const noData  = machineStats.filter(m => !m.thisPeriodReading);
+  const sorted  = [...withData, ...noData];
+  const maxProfit = withData.length > 0
+    ? Math.max(...withData.map(m => Math.max(m.thisPeriodReading.weekSum, 0)), 1) : 1;
+
+  html += `<div class="section-title">Machine Performance Ranking</div>`;
+
+  if (withData.length === 0) {
+    html += `<div class="card" style="padding:14px 16px;color:var(--text2);font-size:14px">No readings entered for this period yet.</div>`;
+  } else {
+    html += `<div class="ranking-list">`;
+    sorted.forEach((m, i) => {
+      const r      = m.thisPeriodReading;
+      const profit = r ? r.weekSum : null;
+      const isLow  = profit != null && avgThisPeriod > 0 && profit < avgThisPeriod * 0.5;
+      const barW   = (profit != null && maxProfit > 0)
+        ? Math.max(Math.round((Math.max(profit, 0) / maxProfit) * 100), profit > 0 ? 2 : 0) : 0;
+      const hasSugg = suggestions.some(s => s.machineId === m.machine.id);
+
+      let rankLabel, rankClass, profitColor;
+      if (profit == null) {
+        rankLabel = '—';    rankClass = 'rank-none';   profitColor = 'var(--text2)';
+      } else if (i === 0) {
+        rankLabel = '#1 🥇'; rankClass = 'rank-gold';  profitColor = '#ffd700';
+      } else if (i === 1) {
+        rankLabel = '#2 🥈'; rankClass = 'rank-silver'; profitColor = 'var(--green)';
+      } else if (i === 2) {
+        rankLabel = '#3 🥉'; rankClass = 'rank-bronze'; profitColor = 'var(--green)';
+      } else if (isLow) {
+        rankLabel = `#${i+1}`; rankClass = 'rank-low'; profitColor = 'var(--orange)';
+      } else {
+        rankLabel = `#${i+1}`; rankClass = 'rank-mid'; profitColor = 'var(--green)';
+      }
+
+      html += `
+      <div class="rank-row">
+        <div class="rank-top">
+          <div class="rank-badge-wrap"><span class="rank-lbl ${rankClass}">${rankLabel}</span></div>
+          <div class="rank-info">
+            <div class="rank-machine">
+              <span class="rank-id">${m.machine.id}</span>
+              <span class="rank-game">${m.machine.gameType}</span>
+            </div>
+            <div class="rank-loc-name">${m.locationName}</div>
+          </div>
+          <div class="rank-profit-val" style="color:${profitColor}">
+            ${profit != null ? fmtFull(profit) : '—'}${hasSugg ? ' ⚠️' : ''}
+          </div>
+        </div>
+        ${profit != null ? `<div class="rank-bar-wrap"><div class="rank-bar ${i === 0 ? 'bar-gold' : isLow ? 'bar-low' : 'bar-ok'}" style="width:${barW}%"></div></div>` : ''}
+        ${r ? `<div class="rank-sub-detail">IN ${fmtFull(r.weekIn)} · OUT ${fmtFull(r.weekOut)}</div>` : ''}
+      </div>`;
+    });
+    html += `</div>`;
+    if (avgThisPeriod > 0) {
+      html += `<div style="font-size:12px;color:var(--text2);text-align:center;margin:4px 0 12px">
+        Period average: <strong style="color:var(--text)">${fmtFull(avgThisPeriod)}</strong> per machine
+      </div>`;
+    }
+  }
+
+  // ── Game Type Leaderboard ─────────────────────────────────────────
+  if (gameTypeStats.length > 0) {
+    const maxGP = Math.max(...gameTypeStats.map(g => Math.max(g.avgProfit, 0)), 1);
+    html += `<div class="section-title">Game Type Performance (All-Time Avg)</div><div class="card" style="overflow:hidden">`;
+    gameTypeStats.forEach((g, i) => {
+      const barW  = Math.max(Math.round((Math.max(g.avgProfit, 0) / maxGP) * 100), g.avgProfit > 0 ? 2 : 0);
+      const medal = ['🥇','🥈','🥉'][i] || `${i+1}.`;
+      html += `
+      <div class="gametype-row">
+        <div class="gametype-top">
+          <span style="font-size:18px;min-width:28px">${medal}</span>
+          <span class="gametype-name">${g.gameType}</span>
+          <span class="gametype-profit" style="color:${g.avgProfit >= 0 ? 'var(--green)' : 'var(--red)'}">${fmtFull(g.avgProfit)}/pd</span>
+        </div>
+        <div class="rank-bar-wrap" style="margin:4px 0 2px"><div class="rank-bar ${i === 0 ? 'bar-gold' : 'bar-ok'}" style="width:${barW}%"></div></div>
+        <div style="font-size:11px;color:var(--text2)">${g.totalPeriods} data point${g.totalPeriods !== 1 ? 's' : ''} · avg IN ${fmtFull(g.avgIn)}/pd</div>
+      </div>`;
+    });
+    html += `</div>`;
+  }
+
+  // ── Suggestions ───────────────────────────────────────────────────
+  html += `<div class="section-title">Suggestions</div>`;
+  if (suggestions.length === 0) {
+    html += `<div class="card" style="padding:14px 16px;color:var(--text2);font-size:14px">
+      ${withData.length > 0 ? '✅ All machines performing within normal range this period' : 'Enter readings to get suggestions'}
+    </div>`;
+  } else {
+    html += `<div class="sugg-list">`;
+    suggestions.forEach(s => {
+      html += `
+      <div class="sugg-card">
+        <div class="sugg-header">⚠️ <strong>${s.machineId}</strong> · ${s.locationName}</div>
+        <div class="sugg-body">
+          <div>Current: <strong>${s.currentGame}</strong> → <span style="color:${s.currentProfit >= 0 ? 'var(--green)' : 'var(--red)'}">${fmtFull(s.currentProfit)}</span> this period</div>
+          ${s.suggestedGame
+            ? `<div style="color:var(--blue);margin-top:4px">💡 Try <strong>${s.suggestedGame}</strong> (avg ${fmtFull(s.bestAvgProfit)}/period)</div>`
+            : `<div style="color:var(--text2);margin-top:4px">💡 Review machine condition or location</div>`}
+        </div>
+      </div>`;
+    });
+    html += `</div>`;
+  }
+
+  // ── Cash Flow ─────────────────────────────────────────────────────
+  html += `<div class="section-title">Cash Flow</div>`;
+  html += `
+  <div class="cashflow-card">
+    <div class="cf-row">
+      <span class="cf-lbl">💰 Total collected (machine IN)</span>
+      <span class="cf-amt cf-pos">${fmtFull(cashFlow.totalIn)}</span>
+    </div>
+    <div class="cf-row">
+      <span class="cf-lbl">📤 Paid out by machines (OUT)</span>
+      <span class="cf-amt" style="color:var(--text2)">${fmtFull(cashFlow.totalOut)}</span>
+    </div>
+    <div class="cf-divider"></div>
+    <div class="cf-row">
+      <span class="cf-lbl">📊 Net machine profit</span>
+      <span class="cf-amt" style="color:${cashFlow.totalProfit >= 0 ? 'var(--green)' : 'var(--red)'}">${fmtFull(cashFlow.totalProfit)}</span>
+    </div>
+  </div>`;
+
+  if (atmDetails.length > 0) {
+    html += `<div class="cashflow-card" style="margin-top:8px">
+      <div style="font-size:12px;font-weight:600;color:var(--text2);margin-bottom:8px;text-transform:uppercase;letter-spacing:0.06em">ATM Refills</div>`;
+    atmDetails.forEach(a => {
+      html += `
+      <div class="cf-row">
+        <span class="cf-lbl">💵 ${a.locationName}</span>
+        <span class="cf-amt" style="color:var(--orange)">−${fmtFull(a.amount)}${a.shortAmount ? ` (short $${a.shortAmount})` : ''}</span>
+      </div>`;
+    });
+    html += `
+      <div class="cf-divider"></div>
+      <div class="cf-row">
+        <span class="cf-lbl" style="font-weight:700">Total ATM Refills</span>
+        <span class="cf-amt" style="color:var(--orange);font-weight:700">−${fmtFull(cashFlow.totalAtmRefills)}</span>
+      </div>
+    </div>`;
+  }
+
+  html += `
+  <div class="cf-total-box">
+    <div class="cf-total-label">💵 Cash You Should Have</div>
+    <div class="cf-total-amount" style="color:${cashFlow.cashOnHand >= 0 ? 'var(--green)' : 'var(--red)'}">
+      ${fmtFull(cashFlow.cashOnHand)}
+    </div>
+    <div class="cf-total-formula">
+      Machine IN (${fmtFull(cashFlow.totalIn)}) − ATM Refills (${fmtFull(cashFlow.totalAtmRefills)})
+    </div>
+  </div>
+  <div style="height:8px"></div>`;
+
+  document.getElementById('analytics-body').innerHTML = html;
 }
 
 // ─── Init ─────────────────────────────────────────────────────────────────────

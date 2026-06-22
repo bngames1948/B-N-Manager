@@ -21,7 +21,7 @@ app.use('/uploads', express.static(IMAGES_DIR));
 let _cache = null;
 let _mongoCol = null;
 
-const SEED_PATH = path.join(__dirname, 'data', 'db.json');
+const SEED_PATH = path.join(__dirname, 'data', 'init.json');
 const LOCAL_PATH = path.join(__dirname, 'data', 'db.json');
 
 async function initDb() {
